@@ -3,8 +3,7 @@
 #
 
 """
-Midterm exam code: Robot shall take off, scan rock, deliver data to probe, move probe, land on cart
-This code will fulfill the reqs outlined here
+Thesis Flight Code: Inv Kino code
 """
 
 import rospy
@@ -48,6 +47,10 @@ class OffbPosCtl:
     joint_1_pos = 0
     joint_2_pos = 0
     camera = PinholeCameraModel()
+
+    tree_x = -1.899290  # tree locaiton in meters
+    tree_y = -3.340390# tree location in meters
+    tree_z = 0.7 # tree location in meters
 
     des_pose = PoseStamped()
     # des_vel = TwistStamped()
@@ -178,7 +181,7 @@ class OffbPosCtl:
 
                 orientation = quaternion_from_euler(0, 0, 0)
                 des_array = numpy.array(
-                    [-0.228314, -3.473595, 0.264093, orientation[0], orientation[1], orientation[2], orientation[3]])
+                    [self.tree_x,self.tree_y+(self.length_of_first_link+self.length_of_second_link)/2,self.tree_z ,orientation[0], orientation[1], orientation[2], orientation[3]])
                 des_local = self.set_desired_pose_local(des_array).position
                 dist = math.sqrt((curr.x - des_local.x) * (curr.x - des_local.x) + (curr.y - des_local.y) * (
                         curr.y - des_local.y) + (curr.z - des_local.z) * (
@@ -250,7 +253,7 @@ class OffbPosCtl:
 
                         bot = 2 * self.length_of_first_link * self.length_of_second_link
 
-                        print("top", top, "bot", bot)
+                        #print("top", top, "bot", bot)
 
                         q2 = math.acos(top/bot)
 
@@ -269,23 +272,66 @@ class OffbPosCtl:
                     print(y_tip+curr.y)
                     print(x_tip+curr.x)
                     print("arm tip des")
-                    print(des_local.y-y_tip - curr.y)
-                    print(des_local.z-x_tip + curr.z)
+                    print(-des_local.y-y_tip + curr.y)
+                    print(-des_local.z-x_tip + curr.z)
 
-                    if dist <= 0.1: #self.distThreshold:
+
+
+
+
+                    print("x_tip", x_tip, "y_tip", y_tip)
+
+                    if (self.length_of_first_link+self.length_of_second_link)/2 >=dist:
+                        x_tip_des = math.fabs(-des_local.z - x_tip + curr.z)
+                        y_tip_des = math.fabs(-des_local.y - y_tip + curr.y)
+
+
+                        print(x_tip_des,y_tip_des)
+
+                        top = x_tip_des * x_tip_des + y_tip_des * y_tip_des - self.length_of_first_link * self.length_of_first_link - self.length_of_second_link * self.length_of_second_link
+
+                        bot = 2 * self.length_of_first_link * self.length_of_second_link
+
+                        print("top", top, "bot", bot)
+
+                        q2 = math.acos(top / bot)
+
+                        q1 = (math.atan(x_tip_des / y_tip_des)) - math.atan(
+                            (self.length_of_first_link + self.length_of_second_link * math.cos(q2)) / (
+                                        self.length_of_second_link * math.sin(q2)))
+
+                        print("q1", -q1, "q2", q2)
+
+                        msg = JointTrajectory()
+                        msg.joint_names = ['base_link1_joint', 'base_link2_joint']
+                        points = JointTrajectoryPoint()
+
+                        joint_1_pos = -q1
+                        joint_2_pos = q2
+                        points.positions = [joint_1_pos, joint_2_pos]
+                        points.time_from_start = rospy.Time(0.01)
+                        msg.points = [points]
+
+                        arm_pose_pub.publish(msg)
+                        print(joint_1_pos, joint_2_pos)
+
+
+                    #var = False
+                    if dist <= (self.length_of_first_link+self.length_of_second_link)/2: #self.distThreshold:
                         print("got it")
                         req = AttachRequest()
                         req.model_name_1 = "iris_1"
                         req.link_name_1 = "link2"
-                        req.model_name_2 = "small_base_tree2"
-                        req.link_name_2 = "link"
+                        req.model_name_2 = "small_base_tree2"#"demo_joint_stiffness_hev" #"small_base_tree2"
+                        req.link_name_2 = "link"#"link_low_stiffness" #"link"
                         attach_srv.call(req)
                         prob_found = True
                         vel_moving = False
 
                         orientation = quaternion_from_euler(0, 0, 0)
                         des_array = numpy.array(
-                            [-0.228314, -347.3595,0.264093 , orientation[0], orientation[1], orientation[2],
+                            [self.tree_x, self.tree_y-1,self.tree_z , orientation[0], orientation[1], orientation[2],
+
                              orientation[3]])
                         des_local = self.set_desired_pose_local(des_array).position
                         dist = math.sqrt((curr.x - des_local.x) * (curr.x - des_local.x) + (curr.y - des_local.y) * (
@@ -293,7 +339,7 @@ class OffbPosCtl:
                                                  curr.z - des_local.z))
 
                         print('dist2 = ', dist)
-                        while (prob_found is TransformStamped and dist > self.distThreshold):
+                        while (dist > self.distThreshold):
                             # des = self.set_desired_pose().position
 
                             azimuth = math.atan2(
@@ -309,13 +355,34 @@ class OffbPosCtl:
 
                             print(des_local) # dont think that its pubing the vel
 
-                            #vel_pub.publish(self.vel_move(x_vel, y_vel, z_vel, rot_speed))
+                            if (curr.x < des_local.x):
+                                x_vel = 0.2
+                                z_vel = -0.2
+                                rot_speed = 0.0
+                            else:
+                                x_vel = -0.2
+
+                            if (curr.y < des_local.y):
+
+                                y_vel = 0.2
+                                z_vel = -0.2
+                                rot_speed = 0.0
+
+                            else:
+                                y_vel = -0.2
+                                z_vel = -0.2
+
+                            if (curr.z < des_local.z):
+                                z_vel = 0.2
+
+
+                            vel_pub.publish(self.vel_move(x_vel, y_vel, z_vel, rot_speed))
 
 
 
 
 
-                            pose_pub.publish(self.des_pose)
+                            #pose_pub.publish(self.des_pose)
 
                         # self.waypointIndex += 1
 
